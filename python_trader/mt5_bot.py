@@ -179,12 +179,23 @@ class MT5SmartTrader:
                 print(f"❌ MT5 initialize failed: {error}")
                 return False
         
-        # Try to login if credentials provided
-        if creds.get("login", 0) > 0 and creds.get("server"):
+        # Check if already logged in (MT5 terminal might be logged in already)
+        account_info = mt5.account_info()
+        if account_info is not None:
+            # Already logged in via MT5 terminal
+            self.connected = True
+            self.account_info = account_info
+            self.account_type = account_type
+            print(f"✅ Already logged in to MT5 (Account: {account_info.login}, Server: {account_info.server})")
+            print(f"   Balance: ${account_info.balance:.2f}")
+            return True
+        
+        # Try to login if credentials provided and not already logged in
+        if creds.get("login", 0) > 0 and creds.get("server") and creds.get("password"):
             print(f"🔐 Logging in to {creds['server']} (Account: {creds['login']})...")
             authorized = mt5.login(
                 login=creds["login"],
-                password=creds.get("password", ""),
+                password=creds["password"],
                 server=creds["server"]
             )
             if not authorized:
@@ -194,6 +205,7 @@ class MT5SmartTrader:
                 return False
         else:
             print("⚠️ No login credentials - MT5 initialized but not logged in")
+            print("   Please log in to MT5 terminal or provide credentials")
             # Just return True if MT5 initialized, user can trade manually
             self.connected = True
             self.account_type = account_type
