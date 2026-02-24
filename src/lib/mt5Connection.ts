@@ -69,13 +69,40 @@ class MT5Connection {
     this.listeners.forEach(cb => cb(this.state));
   }
 
+  // Check if Python API is running
+  async checkAPIConnection(): Promise<{running: boolean, error?: string}> {
+    try {
+      const response = await fetch(`${API_BASE}/api/status`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        return { running: true };
+      }
+      return { running: false, error: 'API not responding' };
+    } catch (error) {
+      return { running: false, error: 'Cannot reach API - is Python server running?' };
+    }
+  }
+
   // Connect to Python API (which connects to real MT5)
   async connect(config: MT5Config): Promise<boolean> {
     this.config = config;
     this.updateState({ connecting: true, error: null });
 
     try {
-      // First, call /api/connect to establish MT5 connection
+      // FIRST: Check if Python API is running
+      const apiCheck = await this.checkAPIConnection();
+      if (!apiCheck.running) {
+        this.updateState({ 
+          connecting: false, 
+          connected: false,
+          error: "Python API not running. Please start: python python_trader/mt5_bot.py --api" 
+        });
+        return false;
+      }
+
+      // SECOND: Call /api/connect to establish MT5 connection
       const connectResponse = await fetch(`${API_BASE}/api/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -94,7 +121,15 @@ class MT5Connection {
       const connectResult = await connectResponse.json();
       
       if (!connectResult.success) {
-        throw new Error("MT5 connection failed - check credentials and MT5 terminal");
+        const errorMsg = connectResult.error || "Connection failed";
+        // Provide more helpful error messages
+        if (errorMsg.includes("not logged in") || errorMsg.includes("initialize")) {
+          throw new Error("MT5 Terminal not running. Please open MetaTrader 5 first!");
+        }
+        if (errorMsg.includes("invalid")) {
+          throw new Error("Invalid login/password. Please check your credentials.");
+        }
+        throw new Error(errorMsg);
       }
       
       // Now get status
@@ -127,7 +162,7 @@ class MT5Connection {
         this.startPolling();
         return true;
       } else {
-        throw new Error("MT5 not connected on Python backend");
+        throw new Error("MT5 not connected. Make sure you're logged in to MT5 terminal.");
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Connection failed";
@@ -234,7 +269,6 @@ class MT5Connection {
           symbol: order.symbol,
           type: order.type,
           volume: order.volume,
-          // For now we let the Python side use its default SL/TP if pips are not provided.
         }),
       });
 
