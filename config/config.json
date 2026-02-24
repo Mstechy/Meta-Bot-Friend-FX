@@ -1,0 +1,60 @@
+{
+    "accounts": {
+        "demo": {
+            "login": 12345678,
+            "password": "",
+            "server": "MetaQuotes-Demo"
+        },
+        "live": {
+            "login": 0,
+            "password": "",
+            "server": ""
+        }
+    },
+    "symbols": {
+        "EURUSD": {
+            "enabled": true,
+            "timeframe": "M30",
+            "min_factor": 1.0,
+            "max_factor": 3.0,
+            "factor_step": 0.5,
+            "cluster_choice": 0,
+            "volume_multiplier": 1.5,
+            "sl_multiplier": 1.5,
+            "tp_multiplier": 3.0,
+            "risk_percent": 1.0
+        },
+        "GBPUSD": {
+            "enabled": true,
+            "timeframe": "M30",
+            "min_factor": 1.0,
+            "max_factor": 3.0,
+            "factor_step": 0.5,
+            "cluster_choice": 0,
+            "volume_multiplier": 1.5,
+            "sl_multiplier": 1.5,
+            "tp_multiplier": 3.0,
+            "risk_percent": 1.0
+        },
+        "XAUUSD": {
+            "enabled": false,
+            "timeframe": "H1",
+            "min_factor": 2.0,
+            "max_factor": 4.0,
+            "factor_step": 0.5,
+            "cluster_choice": 0,
+            "volume_multiplier": 2.0,
+            "sl_multiplier": 2.0,
+            "tp_multiplier": 4.0,
+            "risk_percent": 0.5
+        }
+    },
+    "global_settings": {
+        "atr_period": 10,
+        "performance_alpha": 0.1,
+        "volume_ma_period": 20,
+        "use_trailing_stop": true,
+        "trail_activation_atr": 1.5,
+        "max_positions_per_symbol": 2
+    }
+}

@@ -1,0 +1,4 @@
+project_id = "ebwravytnlletpcymvaz"
+
+[functions.trading-ai]
+verify_jwt = false

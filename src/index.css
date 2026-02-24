@@ -1,0 +1,193 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 95%;
+
+    --card: 220 20% 8%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 220 20% 8%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 189 100% 50%;
+    --primary-foreground: 0 0% 4%;
+
+    --secondary: 220 20% 12%;
+    --secondary-foreground: 0 0% 85%;
+
+    --muted: 220 15% 10%;
+    --muted-foreground: 215 10% 50%;
+
+    --accent: 189 100% 50%;
+    --accent-foreground: 0 0% 4%;
+
+    --destructive: 0 83% 60%;
+    --destructive-foreground: 0 0% 95%;
+
+    --border: 220 15% 15%;
+    --input: 220 15% 15%;
+    --ring: 189 100% 50%;
+
+    --radius: 0.5rem;
+
+    --trading-blue: 189 100% 50%;
+    --trading-red: 354 83% 60%;
+    --trading-green: 150 100% 50%;
+    --trading-yellow: 45 100% 50%;
+    --trading-panel: 220 20% 6%;
+    --trading-panel-hover: 220 15% 10%;
+
+    --buy-color: 189 100% 50%;
+    --sell-color: 354 83% 60%;
+    --profit-color: 150 100% 50%;
+    --loss-color: 354 83% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+    background: #0A0A0F;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .glass-card {
+    background: rgba(20, 20, 30, 0.7);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.05);
+  }
+
+  .glow-blue {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 20px rgba(255, 68, 102, 0.3);
+  }
+
+  .price-up {
+    color: #00FF88;
+  }
+
+  .price-down {
+    color: #FF4466;
+  }
+
+  .buy-color {
+    color: #00D4FF;
+  }
+
+  .sell-color {
+    color: #FF4466;
+  }
+
+  .profit-color {
+    color: #00FF88;
+  }
+
+  .loss-color {
+    color: #FF4466;
+  }
+
+  .pulse-buy {
+    animation: pulseBuy 1.5s ease-in-out infinite;
+  }
+
+  .pulse-sell {
+    animation: pulseSell 1.5s ease-in-out infinite;
+  }
+
+  .pulse-profit {
+    animation: pulseProfit 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulseBuy {
+    0%, 100% { box-shadow: 0 0 5px rgba(0, 212, 255, 0.3); }
+    50% { box-shadow: 0 0 15px rgba(0, 212, 255, 0.6); }
+  }
+
+  @keyframes pulseSell {
+    0%, 100% { box-shadow: 0 0 5px rgba(255, 68, 102, 0.3); }
+    50% { box-shadow: 0 0 15px rgba(255, 68, 102, 0.6); }
+  }
+
+  @keyframes pulseProfit {
+    0%, 100% { box-shadow: 0 0 5px rgba(0, 255, 136, 0.3); }
+    50% { box-shadow: 0 0 15px rgba(0, 255, 136, 0.6); }
+  }
+
+  .ticker-tape {
+    animation: ticker 30s linear infinite;
+  }
+
+  @keyframes ticker {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  .flash-green {
+    animation: flashGreen 0.5s ease-out;
+  }
+
+  .flash-red {
+    animation: flashRed 0.5s ease-out;
+  }
+
+  @keyframes flashGreen {
+    0% { background-color: rgba(0, 255, 136, 0.3); }
+    100% { background-color: transparent; }
+  }
+
+  @keyframes flashRed {
+    0% { background-color: rgba(255, 68, 102, 0.3); }
+    100% { background-color: transparent; }
+  }
+
+  .number-ticker {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bot-active {
+    animation: botPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes botPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+}
+
+@layer utilities {
+  .text-glow-blue {
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+  }
+
+  .text-glow-green {
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  }
+
+  .text-glow-red {
+    text-shadow: 0 0 10px rgba(255, 68, 102, 0.5);
+  }
+}
