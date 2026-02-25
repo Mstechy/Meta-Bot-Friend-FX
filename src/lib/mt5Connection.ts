@@ -133,7 +133,7 @@ class MT5Connection {
 
         const [statusRes, posRes] = await Promise.all([
           fetch(`${API_BASE}/status?accountId=${encodeURIComponent(this.accountId)}`),
-          fetch(`${API_BASE}/positions`),
+          fetch(`${API_BASE}/positions?accountId=${encodeURIComponent(this.accountId)}`),
         ]);
 
         const status = await statusRes.json();
@@ -206,7 +206,7 @@ class MT5Connection {
     stopLoss?: number;
     takeProfit?: number;
   }): Promise<Position | null> {
-    if (!this.state.connected) {
+    if (!this.state.connected || !this.accountId) {
       throw new Error("Not connected to MT5");
     }
 
@@ -214,23 +214,30 @@ class MT5Connection {
       const res = await fetch(`${API_BASE}/order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(order),
+        body: JSON.stringify({
+          accountId: this.accountId,
+          symbol: order.symbol,
+          type: order.type,
+          volume: order.volume,
+          sl: order.stopLoss,
+          tp: order.takeProfit,
+        }),
       });
 
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Order failed");
 
       const position: Position = {
-        id: data.trade?.ticket ?? "",
-        symbol: data.trade?.symbol ?? order.symbol,
-        type: data.trade?.type as "BUY" | "SELL" ?? order.type,
-        volume: data.trade?.volume ?? order.volume,
-        openPrice: data.trade?.price ?? 0,
-        currentPrice: data.trade?.price ?? 0,
+        id: data.orderId ?? "",
+        symbol: order.symbol,
+        type: order.type,
+        volume: order.volume,
+        openPrice: 0,
+        currentPrice: 0,
         profit: 0,
-        openTime: data.trade?.open_time ?? new Date().toISOString(),
-        stopLoss: data.trade?.sl ?? order.stopLoss,
-        takeProfit: data.trade?.tp ?? order.takeProfit,
+        openTime: new Date().toISOString(),
+        stopLoss: order.stopLoss,
+        takeProfit: order.takeProfit,
       };
 
       this.updateState({ positions: [...this.state.positions, position] });
@@ -242,13 +249,16 @@ class MT5Connection {
   }
 
   async closePosition(positionId: string): Promise<boolean> {
-    if (!this.state.connected) return false;
+    if (!this.state.connected || !this.accountId) return false;
 
     try {
       const res = await fetch(`${API_BASE}/close`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: positionId }),
+        body: JSON.stringify({
+          accountId: this.accountId,
+          positionId: positionId,
+        }),
       });
       
       const data = await res.json();

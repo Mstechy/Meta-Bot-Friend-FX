@@ -21,30 +21,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  const { accountId } = req.query;
+
+  if (!accountId) {
+    return res.status(400).json({ error: "Missing accountId parameter" });
+  }
+
+  if (!TOKEN) {
+    return res.status(500).json({ error: "METAAPI_TOKEN not configured" });
+  }
+
   try {
     const api = new MetaApi(TOKEN);
     
-    const accounts = await (api.metatraderAccountApi as unknown as {
-      getAccounts(): Promise<unknown[]>;
-    }).getAccounts();
+    // Get account
+    const account = await (api.metatraderAccountApi as unknown as {
+      getAccount(id: string): Promise<{
+        id: string;
+        getRPCConnection(): Promise<unknown>;
+      }>;
+    }).getAccount(accountId as string);
 
-    if (accounts.length === 0) {
-      return res.status(200).json([]);
-    }
-
-    const account = accounts[0] as {
-      waitConnected(): Promise<void>;
-      getRPCConnection(): unknown;
-    };
-    
-    await account.waitConnected();
-    
-    const connection = account.getRPCConnection() as {
-      waitSynchronized(): Promise<void>;
+    // Get RPC connection
+    const connection = await account.getRPCConnection() as {
+      waitSynchronized(timeout?: number): Promise<void>;
       getPositions(): Promise<Position[]>;
     };
     
-    await connection.waitSynchronized();
+    await connection.waitSynchronized(30000);
 
     const positions = await connection.getPositions();
 

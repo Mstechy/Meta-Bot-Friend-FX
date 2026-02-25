@@ -3,86 +3,61 @@ import MetaApi from "metaapi.cloud-sdk";
 
 const TOKEN = process.env.METAAPI_TOKEN || "";
 
-interface Position {
-  id: string;
-  symbol: string;
-  type: number;
-  volume: number;
-  profit: number;
-}
-
-interface TradeResult {
-  returnCode: string;
-  comment?: string;
-  orderId?: string;
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { ticket } = req.body;
+  const { accountId, positionId } = req.body;
 
-  if (!ticket) {
-    return res.status(400).json({ success: false, error: "Ticket is required" });
+  if (!accountId || !positionId) {
+    return res.status(400).json({ error: "Missing required fields: accountId, positionId" });
+  }
+
+  if (!TOKEN) {
+    return res.status(500).json({ error: "METAAPI_TOKEN not configured" });
   }
 
   try {
     const api = new MetaApi(TOKEN);
     
-    const accounts = await (api.metatraderAccountApi as unknown as {
-      getAccounts(): Promise<unknown[]>;
-    }).getAccounts();
+    // Get account
+    const account = await (api.metatraderAccountApi as unknown as {
+      getAccount(id: string): Promise<{
+        id: string;
+        getRPCConnection(): Promise<unknown>;
+      }>;
+    }).getAccount(accountId);
 
-    if (accounts.length === 0) {
-      return res.status(400).json({ success: false, error: "No account connected" });
-    }
-
-    const account = accounts[0] as {
-      waitConnected(): Promise<void>;
-      getRPCConnection(): unknown;
+    // Get RPC connection
+    const connection = await account.getRPCConnection() as {
+      waitSynchronized(timeout?: number): Promise<void>;
+      executeTrade(trade: Record<string, unknown>): Promise<{
+        orderId?: string;
+        resultCode?: string;
+        comment?: string;
+      }>;
     };
     
-    await account.waitConnected();
-    
-    const connection = account.getRPCConnection() as {
-      waitSynchronized(): Promise<void>;
-      getPositions(): Promise<Position[]>;
-      trade(order: Record<string, unknown>): Promise<TradeResult>;
-    };
-    
-    await connection.waitSynchronized();
+    await connection.waitSynchronized(30000);
 
-    // Get positions to find the one to close
-    const positions = await connection.getPositions();
-    const position = positions.find((pos: Position) => 
-      pos.id === ticket || pos.id === String(ticket)
-    );
-
-    if (!position) {
-      return res.status(404).json({ success: false, error: "Position not found" });
-    }
-
-    // Close the position
-    const result = await connection.trade({
-      symbol: position.symbol,
-      type: position.type === 0 ? 1 : 0, // Reverse the position type
-      volume: position.volume,
-      deviation: 20,
+    // Close position
+    const result = await connection.executeTrade({
+      actionType: "POSITION_CLOSE",
+      positionId: positionId,
     });
 
-    if (result.returnCode !== "ERR_NO_ERROR") {
-      return res.status(400).json({ 
-        success: false, 
-        error: result.comment || "Close failed" 
+    if (result.resultCode === "ACCEPTED" || result.resultCode === "FILLED") {
+      return res.status(200).json({
+        success: true,
+        message: "Position closed successfully",
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: result.comment || "Close failed",
       });
     }
-
-    return res.status(200).json({
-      success: true,
-      profit: position.profit,
-    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("MetaApi close error:", errorMessage);
