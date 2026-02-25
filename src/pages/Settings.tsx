@@ -1,10 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { AccountInfo } from "@/lib/tradingData";
+import { TelegramSettings } from "@/components/trading/TelegramSettings";
 import {
   ArrowLeft, User, Mail, Newspaper, Calendar, MessageSquare, Users,
   Bot, Key, Globe, BarChart3, ClipboardList, Settings as SettingsIcon,
-  ChevronRight, Shield
+  ChevronRight, Shield, Bell
 } from "lucide-react";
+import { useState } from "react";
 
 interface SettingsPageProps {
   account?: AccountInfo;
@@ -12,6 +14,7 @@ interface SettingsPageProps {
 
 const Settings = () => {
   const navigate = useNavigate();
+  const [showTelegram, setShowTelegram] = useState(false);
 
   // Load account from localStorage
   let account: AccountInfo;
@@ -45,6 +48,11 @@ const Settings = () => {
         { icon: BarChart3, label: "Charts", desc: "", onClick: () => navigate("/trading") },
         { icon: ClipboardList, label: "Journal", desc: "", onClick: () => navigate("/journal") },
         { icon: SettingsIcon, label: "Settings", desc: "", onClick: () => {} },
+      ],
+    },
+    {
+      items: [
+        { icon: Bell, label: "Telegram Alerts", desc: "Get trade notifications on Telegram", onClick: () => setShowTelegram(!showTelegram) },
       ],
     },
   ];
@@ -103,6 +111,12 @@ const Settings = () => {
             ))}
           </div>
         ))}
+
+        {showTelegram && (
+          <div className="mt-4">
+            <TelegramSettings />
+          </div>
+        )}
       </div>
 
       {/* Bottom Nav */}

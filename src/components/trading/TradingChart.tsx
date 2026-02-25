@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createChart, ColorType, IChartApi, LineStyle } from "lightweight-charts";
+import { createChart, ColorType, IChartApi, LineStyle, CandlestickData, LineData, HistogramData } from "lightweight-charts";
 import { generateCandleData, Position } from "@/lib/tradingData";
 
 interface TradingChartProps {
@@ -131,9 +131,9 @@ const TradingChart = ({ symbol, positions = [] }: TradingChartProps) => {
     volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
     const data = generateCandleData(symbol);
-    candleSeries.setData(data as any);
+    candleSeries.setData(data as unknown as CandlestickData[]);
     volumeSeries.setData(
-      data.map((d) => ({ time: d.time, value: d.volume, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" })) as any
+      data.map((d) => ({ time: d.time, value: d.volume, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" })) as HistogramData[]
     );
 
     // === Position lines (Entry, SL, TP) ===
@@ -177,12 +177,12 @@ const TradingChart = ({ symbol, positions = [] }: TradingChartProps) => {
     // SMA 20
     if (indicators.sma20) {
       const s = chart.addLineSeries({ color: "#3b82f6", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      s.setData(calcSMA(data, 20) as any);
+      s.setData(calcSMA(data, 20) as LineData[]);
     }
     // EMA 50
     if (indicators.ema50) {
       const s = chart.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      s.setData(calcEMA(data, 50) as any);
+      s.setData(calcEMA(data, 50) as LineData[]);
     }
     // Bollinger Bands
     if (indicators.bb) {
@@ -190,9 +190,9 @@ const TradingChart = ({ symbol, positions = [] }: TradingChartProps) => {
       const upper = chart.addLineSeries({ color: "rgba(168,85,247,0.6)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
       const lower = chart.addLineSeries({ color: "rgba(168,85,247,0.6)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
       const mid = chart.addLineSeries({ color: "rgba(168,85,247,0.3)", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-      upper.setData(bb.upper as any);
-      lower.setData(bb.lower as any);
-      mid.setData(bb.middle as any);
+      upper.setData(bb.upper as LineData[]);
+      lower.setData(bb.lower as LineData[]);
+      mid.setData(bb.middle as LineData[]);
     }
 
     chart.timeScale().fitContent();
@@ -210,12 +210,12 @@ const TradingChart = ({ symbol, positions = [] }: TradingChartProps) => {
       });
       charts.push(rsiChart);
       const rsiSeries = rsiChart.addLineSeries({ color: "#a855f7", lineWidth: 1, priceLineVisible: false });
-      rsiSeries.setData(calcRSI(data) as any);
+      rsiSeries.setData(calcRSI(data) as LineData[]);
       const ob = rsiChart.addLineSeries({ color: "rgba(239,68,68,0.3)", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
       const os = rsiChart.addLineSeries({ color: "rgba(34,197,94,0.3)", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
       const rsiData = calcRSI(data);
-      ob.setData(rsiData.map((d) => ({ time: d.time, value: 70 })) as any);
-      os.setData(rsiData.map((d) => ({ time: d.time, value: 30 })) as any);
+      ob.setData(rsiData.map((d) => ({ time: d.time, value: 70 })) as LineData[]);
+      os.setData(rsiData.map((d) => ({ time: d.time, value: 30 })) as LineData[]);
       rsiChart.timeScale().fitContent();
     }
 
@@ -235,9 +235,9 @@ const TradingChart = ({ symbol, positions = [] }: TradingChartProps) => {
       const signalSeries = macdChart.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false });
       const histSeries = macdChart.addHistogramSeries({ priceScaleId: "" });
       histSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
-      macdLineSeries.setData(macd.macdLine as any);
-      signalSeries.setData(macd.signalLine as any);
-      histSeries.setData(macd.histogram as any);
+      macdLineSeries.setData(macd.macdLine as LineData[]);
+      signalSeries.setData(macd.signalLine as LineData[]);
+      histSeries.setData(macd.histogram as HistogramData[]);
       macdChart.timeScale().fitContent();
     }
 
@@ -267,7 +267,7 @@ const TradingChart = ({ symbol, positions = [] }: TradingChartProps) => {
       lastCandle.close = Math.round(newClose * factor) / factor;
       lastCandle.high = Math.max(lastCandle.high, lastCandle.close);
       lastCandle.low = Math.min(lastCandle.low, lastCandle.close);
-      candleSeries.update(lastCandle as any);
+      candleSeries.update(lastCandle as unknown as CandlestickData);
     }, 1000);
 
     return () => {
