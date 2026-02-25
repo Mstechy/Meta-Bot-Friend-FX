@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bot, Power, Trash2, Zap, Shield, Target, Clock, TrendingUp, Volume2, VolumeX, BarChart3, AlertTriangle, Calendar, Newspaper, Rocket } from "lucide-react";
+import { Bot, Power, Trash2, Zap, Shield, Target, Clock, TrendingUp, Volume2, VolumeX, BarChart3, AlertTriangle, Calendar, Newspaper, Rocket, Brain, HelpCircle } from "lucide-react";
 
 interface AutoTraderPanelProps {
   config: {
@@ -40,6 +40,17 @@ interface AutoTraderPanelProps {
     strategyBreakout: boolean;
     strategyMomentum: boolean;
     minStrategyConfidence: number;
+    // Smart Loss Recovery
+    smartLossRecovery: boolean;
+    smartLossRecoveryConfidence: number;
+    smartLossMaxLossPercent: number;
+    smartCashOut: boolean;
+    smartCashOutMinProfit: number;
+    smartCashOutRetracePercent: number;
+    smartCashOutConfidence: number;
+    // Manual Confirmation
+    manualConfirmLoss: boolean;
+    manualConfirmLossThreshold: number;
   };
   logs: AutoTradeLog[];
   isActive: boolean;
@@ -92,9 +103,10 @@ const AutoTraderPanel = ({ config, logs, isActive, onToggle, onUpdateConfig, onC
 
       {/* Tabs for different settings */}
       <Tabs defaultValue="basic" className="flex-1 flex flex-col min-h-0">
-        <TabsList className="grid grid-cols-4 mx-3">
+        <TabsList className="grid grid-cols-5 mx-3">
           <TabsTrigger value="basic">Basic</TabsTrigger>
           <TabsTrigger value="risk">Risk</TabsTrigger>
+          <TabsTrigger value="smart">Smart</TabsTrigger>
           <TabsTrigger value="strategy">Strategy</TabsTrigger>
           <TabsTrigger value="log">Log</TabsTrigger>
         </TabsList>
@@ -320,6 +332,151 @@ const AutoTraderPanel = ({ config, logs, isActive, onToggle, onUpdateConfig, onC
                 disabled={isActive}
               />
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="smart" className="flex-1 overflow-y-auto m-0 p-3 space-y-3 border-t">
+          {/* Smart Loss Recovery Section */}
+          <div className="p-3 rounded-lg bg-gradient-to-r from-loss/10 to-primary/10 border border-loss/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Brain className="w-4 h-4 text-loss" />
+                <Label className="text-xs font-semibold text-loss">Smart Loss Recovery</Label>
+              </div>
+              <Switch
+                checked={config.smartLossRecovery}
+                onCheckedChange={(v) => onUpdateConfig({ smartLossRecovery: v })}
+                className="scale-75"
+                disabled={isActive}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Analyze market before closing losing trades. Keep trades open if recovery is likely.
+            </p>
+            
+            {config.smartLossRecovery && (
+              <div className="mt-3 space-y-2">
+                <div>
+                  <Label className="text-[9px] text-muted-foreground">Recovery Confidence %</Label>
+                  <Input 
+                    type="number" 
+                    value={config.smartLossRecoveryConfidence} 
+                    onChange={(e) => onUpdateConfig({ smartLossRecoveryConfidence: parseInt(e.target.value) || 70 })} 
+                    className="h-6 text-xs font-mono bg-background border-border" 
+                    min="50" 
+                    max="95" 
+                    disabled={isActive} 
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px] text-muted-foreground">Max Loss % to Attempt Recovery</Label>
+                  <Input 
+                    type="number" 
+                    value={config.smartLossMaxLossPercent} 
+                    onChange={(e) => onUpdateConfig({ smartLossMaxLossPercent: parseInt(e.target.value) || 50 })} 
+                    className="h-6 text-xs font-mono bg-background border-border" 
+                    min="10" 
+                    max="100" 
+                    disabled={isActive} 
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Smart Cash Out Section */}
+          <div className="p-3 rounded-lg bg-gradient-to-r from-profit/10 to-primary/10 border border-profit/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-profit" />
+                <Label className="text-xs font-semibold text-profit">Smart Cash Out</Label>
+              </div>
+              <Switch
+                checked={config.smartCashOut}
+                onCheckedChange={(v) => onUpdateConfig({ smartCashOut: v })}
+                className="scale-75"
+                disabled={isActive}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Close winning trades early if analysis shows reversal is likely.
+            </p>
+            
+            {config.smartCashOut && (
+              <div className="mt-3 space-y-2">
+                <div>
+                  <Label className="text-[9px] text-muted-foreground">Min Profit ($)</Label>
+                  <Input 
+                    type="number" 
+                    value={config.smartCashOutMinProfit} 
+                    onChange={(e) => onUpdateConfig({ smartCashOutMinProfit: parseInt(e.target.value) || 5 })} 
+                    className="h-6 text-xs font-mono bg-background border-border" 
+                    min="1" 
+                    max="100" 
+                    disabled={isActive} 
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px] text-muted-foreground">Retrace % from Peak</Label>
+                  <Input 
+                    type="number" 
+                    value={config.smartCashOutRetracePercent} 
+                    onChange={(e) => onUpdateConfig({ smartCashOutRetracePercent: parseInt(e.target.value) || 50 })} 
+                    className="h-6 text-xs font-mono bg-background border-border" 
+                    min="10" 
+                    max="90" 
+                    disabled={isActive} 
+                  />
+                </div>
+                <div>
+                  <Label className="text-[9px] text-muted-foreground">Confidence % to Close</Label>
+                  <Input 
+                    type="number" 
+                    value={config.smartCashOutConfidence} 
+                    onChange={(e) => onUpdateConfig({ smartCashOutConfidence: parseInt(e.target.value) || 70 })} 
+                    className="h-6 text-xs font-mono bg-background border-border" 
+                    min="50" 
+                    max="95" 
+                    disabled={isActive} 
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Manual Confirmation Section */}
+          <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-yellow-500" />
+                <Label className="text-xs font-semibold text-yellow-500">Manual Confirm on Loss</Label>
+              </div>
+              <Switch
+                checked={config.manualConfirmLoss}
+                onCheckedChange={(v) => onUpdateConfig({ manualConfirmLoss: v })}
+                className="scale-75"
+                disabled={isActive}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Ask before closing trades in loss. Shows market analysis to help you decide.
+            </p>
+            
+            {config.manualConfirmLoss && (
+              <div className="mt-3">
+                <Label className="text-[9px] text-muted-foreground">Loss Threshold ($)</Label>
+                <Input 
+                  type="number" 
+                  value={config.manualConfirmLossThreshold} 
+                  onChange={(e) => onUpdateConfig({ manualConfirmLossThreshold: parseInt(e.target.value) || 10 })} 
+                  className="h-6 text-xs font-mono bg-background border-border" 
+                  min="1" 
+                  max="100" 
+                  disabled={isActive} 
+                />
+                <span className="text-[9px] text-muted-foreground">Only ask for losses above this amount</span>
+              </div>
+            )}
           </div>
         </TabsContent>
 

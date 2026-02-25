@@ -71,6 +71,9 @@ interface AutoTraderConfig {
   smartLossRecovery: boolean;        // Enable/disable smart loss recovery
   smartLossRecoveryConfidence: number; // Confidence threshold to keep trade open
   smartLossMaxLossPercent: number;   // Max loss % from entry to attempt recovery
+  // Manual Confirmation - Ask before closing losing trades
+  manualConfirmLoss: boolean;        // Ask before closing trades in loss
+  manualConfirmLossThreshold: number; // $ threshold for manual confirmation
 }
 
 const DEFAULT_CONFIG: AutoTraderConfig = {
@@ -115,6 +118,9 @@ const DEFAULT_CONFIG: AutoTraderConfig = {
   smartLossRecovery: true,        // Enable smart loss recovery
   smartLossRecoveryConfidence: 70, // Need 70% confidence to keep trade open
   smartLossMaxLossPercent: 50,   // Max 50% of SL loss to attempt recovery
+  // Manual Confirmation - Ask before closing losing trades
+  manualConfirmLoss: false,       // Disabled by default
+  manualConfirmLossThreshold: 10,  // $10 threshold for manual confirmation
 };
 
 const STORAGE_KEY = "mt5_autotrader_config";
