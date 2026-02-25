@@ -18,24 +18,53 @@ export interface RiskConfig {
   stopLossPips: number;
   takeProfitPips: number;
   
+  // Legacy risk controls (for backward compatibility)
+  maxDailyLoss: number;
+  maxDrawdownPercent: number;
+  volatilityAdjustment: boolean;
+  atrMultiplier: number;
+  useMartingale: boolean;
+  martingaleMultiplier: number;
+  maxMartingaleSteps: number;
+  sessionLimit: boolean;
+  sessionStartHour: number;
+  sessionEndHour: number;
+  maxTradesPerSession: number;
+  newsFilter: boolean;
+  
   // Smart Adaptive Risk Controls
-  adaptiveRisk: boolean;           // Enable adaptive risk based on performance
-  consecutiveLossLimit: number;     // Max consecutive losses before aggressive cooldown
-  minConfidenceForTrade: number;   // Minimum signal confidence to trade
-  cooldownAfterLoss: number;        // Extra cooldown ms after a loss
+  adaptiveRisk: boolean;
+  consecutiveLossLimit: number;
+  minConfidenceForTrade: number;
+  cooldownAfterLoss: number;
   increaseCooldownAfterConsecutiveLosses: boolean;
-  maxCooldownAfterLoss: number;    // Maximum cooldown after losses (ms)
-  useTrailingStop: boolean;        // Use trailing stop to protect profits
-  trailingStopPips: number;         // Trailing stop distance in pips
-  useBreakevenAfterWin: boolean;   // Move SL to breakeven after first profit
-  breakevenPipsLock: number;       // Pips to lock in after reaching this profit
+  maxCooldownAfterLoss: number;
+  useTrailingStop: boolean;
+  trailingStopPips: number;
+  useBreakevenAfterWin: boolean;
+  breakevenPipsLock: number;
 }
 
 export const DEFAULT_RISK_CONFIG: RiskConfig = {
+  // Basic risk controls
   riskPercent: 1,
   maxOpenTrades: 3,
   stopLossPips: 20,
   takeProfitPips: 30,
+  
+  // Legacy risk controls
+  maxDailyLoss: 500,
+  maxDrawdownPercent: 10,
+  volatilityAdjustment: false,
+  atrMultiplier: 2,
+  useMartingale: false,
+  martingaleMultiplier: 2,
+  maxMartingaleSteps: 3,
+  sessionLimit: false,
+  sessionStartHour: 8,
+  sessionEndHour: 20,
+  maxTradesPerSession: 10,
+  newsFilter: false,
   
   // Smart Adaptive Risk
   adaptiveRisk: true,
@@ -158,6 +187,28 @@ class RiskManager {
     reason?: string; 
     suggestedConfidence?: number 
   } {
+    // Check daily loss limit (legacy)
+    if (this.dailyStats.profit <= -this.config.maxDailyLoss) {
+      return { allowed: false, reason: `Daily loss limit reached ($${this.config.maxDailyLoss})` };
+    }
+
+    // Check drawdown (legacy)
+    const drawdown = ((this.dailyStats.peakEquity - currentEquity) / this.dailyStats.peakEquity) * 100;
+    if (drawdown >= this.config.maxDrawdownPercent) {
+      return { allowed: false, reason: `Max drawdown reached (${drawdown.toFixed(1)}%)` };
+    }
+
+    // Check session limits (legacy)
+    if (this.config.sessionLimit) {
+      const hour = new Date().getHours();
+      if (hour < this.config.sessionStartHour || hour >= this.config.sessionEndHour) {
+        return { allowed: false, reason: 'Outside trading session hours' };
+      }
+      if (this.dailyStats.sessionTrades >= this.config.maxTradesPerSession) {
+        return { allowed: false, reason: 'Maximum trades per session reached' };
+      }
+    }
+
     // Always allow if we're winning
     if (this.dailyStats.lastTradeOutcome === 'win' || this.dailyStats.consecutiveWins > 0) {
       return { allowed: true };
@@ -228,10 +279,10 @@ class RiskManager {
     let lotSize = riskAmount / (stopLossPips * pipDollarValue);
     
     // Apply volatility adjustment if enabled
-    if (this.config.useTrailingStop) {
+    if (this.config.volatilityAdjustment) {
       const atr = this.atrCache.get(symbol) || this.estimateATR(symbol, currentPrice);
       if (atr > 0) {
-        const volatilityStopLoss = atr * 2;
+        const volatilityStopLoss = atr * this.config.atrMultiplier;
         lotSize = riskAmount / (volatilityStopLoss * pipDollarValue);
       }
     }
