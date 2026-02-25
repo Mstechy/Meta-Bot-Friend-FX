@@ -1,9 +1,11 @@
 // Web Audio API trade notification sounds
-const audioCtx = () => {
-  if (!(window as any).__tradeAudioCtx) {
-    (window as any).__tradeAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+const audioCtx = (): AudioContext => {
+  const win = window as unknown as { __tradeAudioCtx?: AudioContext; AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+  if (!win.__tradeAudioCtx) {
+    const AudioContextClass = win.AudioContext || win.webkitAudioContext;
+    win.__tradeAudioCtx = new AudioContextClass();
   }
-  return (window as any).__tradeAudioCtx as AudioContext;
+  return win.__tradeAudioCtx;
 };
 
 function playTone(freq: number, duration: number, type: OscillatorType = "sine", volume = 0.15) {
