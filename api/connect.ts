@@ -1,47 +1,63 @@
-// Connect to MT5 via Python API
-const API_BASE = "http://localhost:5000";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import MetaApi from "metaapi.cloud-sdk";
 
-export interface ConnectParams {
-  account_type: 'demo' | 'real';
-  login?: number;
-  password?: string;
-  server?: string;
-}
-
-export interface ConnectResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-}
-
-export async function connectToMT5(params: ConnectParams): Promise<ConnectResponse> {
-  try {
-    const response = await fetch(`${API_BASE}/api/connect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Connection failed'
-    };
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
-}
 
-export async function disconnectFromMT5(): Promise<ConnectResponse> {
+  const { login, password, server, account_type } = req.body;
+  const TOKEN = process.env.METAAPI_TOKEN || "";
+
   try {
-    const response = await fetch(`${API_BASE}/api/disconnect`, {
-      method: 'POST',
+    const api = new MetaApi(TOKEN);
+
+    // Check if account already exists
+    const accounts = await api.metatraderAccountApi.getAccounts();
+    let account = accounts.find(
+      (a: any) => a.login === String(login) && a.server === server
+    );
+
+    // Create account if it doesn't exist
+    if (!account) {
+      account = await api.metatraderAccountApi.createAccount({
+        name: `MT5-${login}`,
+        type: "cloud",
+        login: String(login),
+        password: password,
+        server: server,
+        platform: "mt5",
+        magic: 123456,
+      });
+    }
+
+    // Deploy and connect
+    await account.deploy();
+    await account.waitConnected();
+
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    const info = await connection.getAccountInformation();
+
+    return res.status(200).json({
+      success: true,
+      accountId: account.id,
+      account: {
+        balance: info.balance,
+        equity: info.equity,
+        margin: info.margin,
+        free_margin: info.freeMargin,
+        margin_level: info.marginLevel,
+        profit: info.profit,
+        login: login,
+      },
+      account_type,
+      server,
     });
-    return await response.json();
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Disconnect failed'
-    };
+  } catch (error: any) {
+    console.error("MetaApi connect error:", error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 }

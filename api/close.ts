@@ -1,26 +1,61 @@
-// Close MT5 Position via Python API
-const API_BASE = "http://localhost:5000";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import MetaApi from "metaapi.cloud-sdk";
 
-export interface CloseResponse {
-  success: boolean;
-  profit?: number;
-  error?: string;
-}
+const TOKEN = process.env.METAAPI_TOKEN || "";
 
-export async function closePosition(ticket: number): Promise<CloseResponse> {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const { ticket } = req.body;
+
+  if (!ticket) {
+    return res.status(400).json({ success: false, error: "Ticket is required" });
+  }
+
   try {
-    const response = await fetch(`${API_BASE}/api/close`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket }),
+    const api = new MetaApi(TOKEN);
+    const accounts = await api.metatraderAccountApi.getAccounts();
+
+    if (accounts.length === 0) {
+      return res.status(400).json({ success: false, error: "No account connected" });
+    }
+
+    const account = accounts[0];
+    await account.waitConnected();
+    const connection = account.getRPCConnection();
+    await connection.waitSynchronized();
+
+    // Get positions to find the one to close
+    const positions = await connection.getPositions();
+    const position = positions.find((pos: any) => pos.id === ticket || pos.id === String(ticket));
+
+    if (!position) {
+      return res.status(404).json({ success: false, error: "Position not found" });
+    }
+
+    // Close the position
+    const result = await connection.trade({
+      symbol: position.symbol,
+      type: position.type === 0 ? 1 : 0, // Reverse the position type
+      volume: position.volume,
+      deviation: 20,
     });
-    
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Close failed'
-    };
+
+    if (result.returnCode !== "ERR_NO_ERROR") {
+      return res.status(400).json({ 
+        success: false, 
+        error: result.comment || "Close failed" 
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      profit: position.profit,
+    });
+  } catch (error: any) {
+    console.error("MetaApi close error:", error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 }
