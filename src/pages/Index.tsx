@@ -256,12 +256,7 @@ const Index = () => {
             <span className="font-bold text-foreground">MT5 Trading Hub</span>
           </div>
           <p className="text-xs text-muted-foreground text-center">
-            ⚠️ This is a trading simulator for educational purposes. Not connected to live markets.<br />
-            For real trading, download{" "}
-            <a href="https://www.metatrader5.com/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-              MetaTrader 5
-            </a>{" "}
-            from the official website.
+            MT5 Trading Hub - Connect your MT5 account to trade forex with AI assistance.
           </p>
         </div>
       </footer>
