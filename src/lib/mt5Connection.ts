@@ -75,6 +75,8 @@ class MT5Connection {
     this.updateState({ connecting: true, error: null });
 
     try {
+      console.log("Connecting to MetaApi with:", { login: config.login, server: config.server });
+      
       const res = await fetch(`${API_BASE}/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -87,6 +89,7 @@ class MT5Connection {
       });
 
       const result = await res.json();
+      console.log("MetaApi response:", result);
 
       if (!result.success) {
         throw new Error(result.error || "Connection failed");
@@ -119,6 +122,7 @@ class MT5Connection {
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Connection failed";
+      console.error("MetaApi connect error:", msg);
       this.updateState({ connecting: false, connected: false, error: msg });
       return false;
     }

@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import mt5Connection, { MT5_DEMO_SERVERS, MT5_LIVE_SERVERS, MT5ConnectionState } from "@/lib/mt5Connection";
-import { Activity, CheckCircle, XCircle, Loader2, Shield, Zap, Server, Key } from "lucide-react";
+import { Activity, CheckCircle, XCircle, Loader2, Shield, Zap, Server, Key, Cloud } from "lucide-react";
 import { toast } from "sonner";
 
 interface MT5ConnectionPanelProps {
@@ -34,8 +34,7 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
   const handleDemoConnect = async () => {
     setConnecting(true);
     try {
-      // Connect to Python API which handles MT5 connection
-      // Use login/password from input fields if provided
+      // Connect to MetaApi cloud which handles MT5 connection
       const success = await mt5Connection.connect({
         host: "localhost",
         port: 5000,
@@ -46,14 +45,15 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
       });
       
       if (success) {
-        toast.success("Connected to MT5 via Python API", {
+        toast.success("Connected to MT5 via MetaApi", {
           description: `Server: ${demoServer}${login ? ` | Account: ${login}` : ''}`,
         });
       } else {
         toast.error("Failed to connect. Check credentials and try again!");
       }
     } catch (error) {
-      toast.error("Connection error - Is Python API running on port 5000?");
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Connection error: ${errorMsg}`);
     } finally {
       setConnecting(false);
     }
@@ -67,7 +67,7 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
 
     setConnecting(true);
     try {
-      // Connect to Python API which handles MT5 connection
+      // Connect to MetaApi cloud which handles MT5 connection
       const success = await mt5Connection.connect({
         host: "localhost",
         port: 5000,
@@ -78,14 +78,15 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
       });
       
       if (success) {
-        toast.success("Connected to MT5 via Python API", {
+        toast.success("Connected to MT5 via MetaApi", {
           description: `Server: ${liveServer} | Account: ${login}`,
         });
       } else {
-        toast.error("Failed to connect. Check Python API and credentials!");
+        toast.error("Failed to connect. Check credentials and try again!");
       }
     } catch (error) {
-      toast.error("Connection error - Is Python API running on port 5000?");
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Connection error: ${errorMsg}`);
     } finally {
       setConnecting(false);
     }
@@ -119,7 +120,7 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
           </div>
         </div>
         <CardDescription>
-          Connect to Python API (which connects to MetaTrader 5)
+          Connect to MetaApi cloud (which connects to MetaTrader 5)
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -129,7 +130,7 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
             <Alert className="bg-profit/10 border-profit/30">
               <CheckCircle className="h-4 w-4 text-profit" />
               <AlertDescription className="text-profit">
-                Successfully connected to MT5 via Python API!
+                Successfully connected to MT5 via MetaApi cloud!
               </AlertDescription>
             </Alert>
 
@@ -180,9 +181,9 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
             {/* Demo Account Tab */}
             <TabsContent value="demo" className="space-y-4 mt-4">
               <Alert className="bg-primary/10 border-primary/30">
-                <Zap className="h-4 w-4 text-primary" />
+                <Cloud className="h-4 w-4 text-primary" />
                 <AlertDescription className="text-muted-foreground">
-                  Enter your demo account credentials. Make sure Python API is running first!
+                  Enter your demo account credentials to connect via MetaApi cloud.
                 </AlertDescription>
               </Alert>
 
@@ -234,8 +235,8 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
                   </>
                 ) : (
                   <>
-                    <Zap className="w-4 h-4 mr-2" />
-                    Connect via Python API
+                    <Cloud className="w-4 h-4 mr-2" />
+                    Connect via MetaApi
                   </>
                 )}
               </Button>
@@ -246,7 +247,7 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
               <Alert className="bg-loss/10 border-loss/30">
                 <Shield className="h-4 w-4 text-loss" />
                 <AlertDescription className="text-muted-foreground">
-                  Live trading involves real money. Make sure Python API is running!
+                  Live trading involves real money. Enter your live credentials.
                 </AlertDescription>
               </Alert>
 
@@ -300,7 +301,7 @@ const MT5ConnectionPanel = ({ currentState, onStateChange }: MT5ConnectionPanelP
                 ) : (
                   <>
                     <Shield className="w-4 h-4 mr-2" />
-                    Connect via Python API
+                    Connect via MetaApi
                   </>
                 )}
               </Button>
