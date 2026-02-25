@@ -7,8 +7,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const api = new MetaApi(TOKEN);
-    const account = await api.metatraderAccountApi.getAccount(accountId as string);
-    const connection = account.getRPCConnection();
+    
+    const account = await (api.metatraderAccountApi as unknown as {
+      getAccount(id: string): Promise<unknown>;
+    }).getAccount(accountId as string);
+    
+    const accountObj = account as {
+      getRPCConnection(): unknown;
+    };
+    
+    const connection = accountObj.getRPCConnection() as {
+      connect(): Promise<void>;
+      getAccountInformation(): Promise<Record<string, unknown>>;
+    };
+    
     await connection.connect();
 
     const info = await connection.getAccountInformation();
@@ -24,7 +36,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         margin_level: info.marginLevel,
       },
     });
-  } catch (error: any) {
-    return res.status(200).json({ connected: false, error: error.message });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return res.status(200).json({ connected: false, error: errorMessage });
   }
 }

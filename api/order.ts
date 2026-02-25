@@ -3,6 +3,19 @@ import MetaApi from "metaapi.cloud-sdk";
 
 const TOKEN = process.env.METAAPI_TOKEN || "";
 
+interface SymbolInfo {
+  digits: number;
+  point: number;
+  ask?: number;
+  bid?: number;
+}
+
+interface TradeResult {
+  returnCode: string;
+  comment?: string;
+  orderId?: string;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -12,15 +25,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const api = new MetaApi(TOKEN);
-    const accounts = await api.metatraderAccountApi.getAccounts();
+    
+    const accounts = await (api.metatraderAccountApi as unknown as {
+      getAccounts(): Promise<unknown[]>;
+    }).getAccounts();
 
     if (accounts.length === 0) {
       return res.status(400).json({ success: false, error: "No account connected" });
     }
 
-    const account = accounts[0];
+    const account = accounts[0] as {
+      waitConnected(): Promise<void>;
+      getRPCConnection(): unknown;
+    };
+    
     await account.waitConnected();
-    const connection = account.getRPCConnection();
+    
+    const connection = account.getRPCConnection() as {
+      waitSynchronized(): Promise<void>;
+      getSymbolSpecification(symbol: string): Promise<SymbolInfo>;
+      trade(order: Record<string, unknown>): Promise<TradeResult>;
+    };
+    
     await connection.waitSynchronized();
 
     // Get symbol info for pip calculation
@@ -68,8 +94,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         open_time: new Date().toISOString(),
       },
     });
-  } catch (error: any) {
-    console.error("MetaApi order error:", error);
-    return res.status(500).json({ success: false, error: error.message });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("MetaApi order error:", errorMessage);
+    return res.status(500).json({ success: false, error: errorMessage });
   }
 }
