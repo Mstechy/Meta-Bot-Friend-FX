@@ -1,9 +1,14 @@
 /**
  * Advanced Risk Management Module
- * Provides sophisticated risk controls for the trading bot
+ * Provides intelligent, adaptive risk controls that learn from mistakes
+ * Key features:
+ * - No fixed loss limits - uses adaptive sizing based on performance
+ * - Learns from recent mistakes and adjusts strategy
+ * - Finds best setups before entering after losses
+ * - Smart cooldown to avoid revenge trading
  */
 
-import { CandleData, ForexPair } from './tradingData';
+import { CandleData } from './tradingData';
 
 // Risk configuration interface
 export interface RiskConfig {
@@ -13,21 +18,17 @@ export interface RiskConfig {
   stopLossPips: number;
   takeProfitPips: number;
   
-  // Advanced risk controls
-  maxDailyLoss: number;        // Maximum daily loss in dollars
-  maxDrawdownPercent: number;    // Maximum drawdown from peak equity
-  maxCorrelationLoss: number;    // Maximum loss from correlated positions
-  volatilityAdjustment: boolean;  // Use ATR for position sizing
-  atrMultiplier: number;         // ATR multiplier for stop loss
-  useMartingale: boolean;        // Martingale mode (increase lot after loss)
-  martingaleMultiplier: number;   // Multiplier for martingale
-  maxMartingaleSteps: number;    // Maximum martingale steps
-  sessionLimit: boolean;         // Enable session-based limits
-  sessionStartHour: number;      // Trading session start hour (0-23)
-  sessionEndHour: number;        // Trading session end hour (0-23)
-  maxTradesPerSession: number;   // Max trades per session
-  newsFilter: boolean;           // Enable news filter
-  minNewsDistance: number;       // Minimum minutes before/after news
+  // Smart Adaptive Risk Controls
+  adaptiveRisk: boolean;           // Enable adaptive risk based on performance
+  consecutiveLossLimit: number;     // Max consecutive losses before aggressive cooldown
+  minConfidenceForTrade: number;   // Minimum signal confidence to trade
+  cooldownAfterLoss: number;        // Extra cooldown ms after a loss
+  increaseCooldownAfterConsecutiveLosses: boolean;
+  maxCooldownAfterLoss: number;    // Maximum cooldown after losses (ms)
+  useTrailingStop: boolean;        // Use trailing stop to protect profits
+  trailingStopPips: number;         // Trailing stop distance in pips
+  useBreakevenAfterWin: boolean;   // Move SL to breakeven after first profit
+  breakevenPipsLock: number;       // Pips to lock in after reaching this profit
 }
 
 export const DEFAULT_RISK_CONFIG: RiskConfig = {
@@ -35,20 +36,18 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxOpenTrades: 3,
   stopLossPips: 20,
   takeProfitPips: 30,
-  maxDailyLoss: 500,
-  maxDrawdownPercent: 10,
-  maxCorrelationLoss: 200,
-  volatilityAdjustment: false,
-  atrMultiplier: 2,
-  useMartingale: false,
-  martingaleMultiplier: 2,
-  maxMartingaleSteps: 3,
-  sessionLimit: false,
-  sessionStartHour: 8,
-  sessionEndHour: 20,
-  maxTradesPerSession: 10,
-  newsFilter: false,
-  minNewsDistance: 30,
+  
+  // Smart Adaptive Risk
+  adaptiveRisk: true,
+  consecutiveLossLimit: 3,
+  minConfidenceForTrade: 65,
+  cooldownAfterLoss: 5000,
+  increaseCooldownAfterConsecutiveLosses: true,
+  maxCooldownAfterLoss: 60000,
+  useTrailingStop: true,
+  trailingStopPips: 15,
+  useBreakevenAfterWin: true,
+  breakevenPipsLock: 10,
 };
 
 // Daily statistics tracking
@@ -61,13 +60,14 @@ export interface DailyStats {
   peakEquity: number;
   currentEquity: number;
   sessionTrades: number;
+  consecutiveWins: number;
+  consecutiveLosses: number;
+  lastTradeOutcome: 'win' | 'loss' | null;
 }
 
 class RiskManager {
   private config: RiskConfig = DEFAULT_RISK_CONFIG;
   private dailyStats: DailyStats = this.initDailyStats();
-  private martingaleStep: number = 0;
-  private lastTradeResult: 'win' | 'loss' | null = null;
   
   // ATR cache for volatility-adjusted sizing
   private atrCache: Map<string, number> = new Map();
@@ -87,6 +87,9 @@ class RiskManager {
       peakEquity: 10000,
       currentEquity: 10000,
       sessionTrades: 0,
+      consecutiveWins: 0,
+      consecutiveLosses: 0,
+      lastTradeOutcome: null,
     };
   }
 
@@ -122,41 +125,86 @@ class RiskManager {
   }
 
   /**
-   * Check if trading is allowed based on risk rules
+   * Get the adaptive cooldown based on recent performance
+   * More losses = longer cooldown to find better setups
    */
-  canTrade(currentEquity: number): { allowed: boolean; reason?: string } {
-    // Check daily loss limit
-    if (this.dailyStats.profit <= -this.config.maxDailyLoss) {
-      return { allowed: false, reason: `Daily loss limit reached ($${this.config.maxDailyLoss})` };
+  getAdaptiveCooldown(baseCooldown: number): number {
+    if (!this.config.adaptiveRisk) return baseCooldown;
+    
+    const consecutiveLosses = this.dailyStats.consecutiveLosses;
+    
+    if (consecutiveLosses === 0) {
+      return baseCooldown;
+    }
+    
+    // Increase cooldown based on consecutive losses
+    let extraCooldown = 0;
+    if (this.config.increaseCooldownAfterConsecutiveLosses) {
+      extraCooldown = Math.min(
+        this.config.cooldownAfterLoss * consecutiveLosses,
+        this.config.maxCooldownAfterLoss
+      );
+    }
+    
+    return baseCooldown + extraCooldown;
+  }
+
+  /**
+   * Check if we should trade based on recent performance
+   * Learn from mistakes - be more selective after losses
+   */
+  canTrade(currentEquity: number): { 
+    allowed: boolean; 
+    reason?: string; 
+    suggestedConfidence?: number 
+  } {
+    // Always allow if we're winning
+    if (this.dailyStats.lastTradeOutcome === 'win' || this.dailyStats.consecutiveWins > 0) {
+      return { allowed: true };
     }
 
-    // Check drawdown
-    const drawdown = ((this.dailyStats.peakEquity - currentEquity) / this.dailyStats.peakEquity) * 100;
-    if (drawdown >= this.config.maxDrawdownPercent) {
-      return { allowed: false, reason: `Max drawdown reached (${drawdown.toFixed(1)}%)` };
-    }
-
-    // Check session limits
-    if (this.config.sessionLimit) {
-      const hour = new Date().getHours();
-      if (hour < this.config.sessionStartHour || hour >= this.config.sessionEndHour) {
-        return { allowed: false, reason: 'Outside trading session hours' };
+    // After losses, be more selective
+    if (this.dailyStats.consecutiveLosses > 0) {
+      // If we've had multiple losses, require higher confidence
+      if (this.dailyStats.consecutiveLosses >= this.config.consecutiveLossLimit) {
+        const suggestedConfidence = Math.min(
+          this.config.minConfidenceForTrade + 15,
+          95
+        );
+        
+        return { 
+          allowed: false, 
+          reason: `After ${this.dailyStats.consecutiveLosses} losses - finding best setup. Need ${suggestedConfidence}% confidence`,
+          suggestedConfidence 
+        };
       }
-      if (this.dailyStats.sessionTrades >= this.config.maxTradesPerSession) {
-        return { allowed: false, reason: 'Maximum trades per session reached' };
-      }
-    }
-
-    // Check news filter
-    if (this.config.newsFilter && this.isNewsTime()) {
-      return { allowed: false, reason: 'High-impact news nearby' };
     }
 
     return { allowed: true };
   }
 
   /**
-   * Calculate position size with risk management
+   * Get minimum confidence required based on recent performance
+   */
+  getRequiredConfidence(): number {
+    if (!this.config.adaptiveRisk) return this.config.minConfidenceForTrade;
+
+    const consecutiveLosses = this.dailyStats.consecutiveLosses;
+    
+    // Increase confidence requirement after losses
+    if (consecutiveLosses > 0) {
+      const additionalConfidence = Math.min(consecutiveLosses * 5, 25);
+      return Math.min(
+        this.config.minConfidenceForTrade + additionalConfidence,
+        95
+      );
+    }
+
+    return this.config.minConfidenceForTrade;
+  }
+
+  /**
+   * Calculate position size with smart risk management
    */
   calculateLotSize(
     accountBalance: number,
@@ -164,11 +212,13 @@ class RiskManager {
     stopLossPips: number,
     currentPrice?: number
   ): number {
+    // Base risk amount
     let riskAmount = accountBalance * (this.config.riskPercent / 100);
 
-    // Apply martingale if enabled and last trade was a loss
-    if (this.config.useMartingale && this.lastTradeResult === 'loss' && this.martingaleStep < this.config.maxMartingaleSteps) {
-      riskAmount *= Math.pow(this.config.martingaleMultiplier, this.martingaleStep);
+    // After losses, reduce risk to recover smarter
+    if (this.config.adaptiveRisk && this.dailyStats.consecutiveLosses > 0) {
+      const lossFactor = Math.max(0.5, 1 - (this.dailyStats.consecutiveLosses * 0.15));
+      riskAmount *= lossFactor;
     }
 
     // Get pip dollar value
@@ -178,10 +228,10 @@ class RiskManager {
     let lotSize = riskAmount / (stopLossPips * pipDollarValue);
     
     // Apply volatility adjustment if enabled
-    if (this.config.volatilityAdjustment) {
+    if (this.config.useTrailingStop) {
       const atr = this.atrCache.get(symbol) || this.estimateATR(symbol, currentPrice);
       if (atr > 0) {
-        const volatilityStopLoss = atr * this.config.atrMultiplier;
+        const volatilityStopLoss = atr * 2;
         lotSize = riskAmount / (volatilityStopLoss * pipDollarValue);
       }
     }
@@ -193,50 +243,53 @@ class RiskManager {
   }
 
   /**
-   * Calculate stop loss distance with ATR
+   * Calculate stop loss - use tighter stops after losses
    */
-  calculateStopLoss(symbol: string, entryPrice: number, type: 'BUY' | 'SELL', useATR: boolean = false): number {
+  calculateStopLoss(symbol: string, entryPrice: number, type: 'BUY' | 'SELL'): number {
     const pipValue = this.getPipValue(symbol);
-    let slDistance = this.config.stopLossPips * pipValue;
-
-    if (useATR && this.config.volatilityAdjustment) {
-      const atr = this.atrCache.get(symbol) || this.estimateATR(symbol, entryPrice);
-      if (atr > 0) {
-        slDistance = atr * this.config.atrMultiplier;
-      }
+    
+    // After losses, use tighter stops to recover
+    let stopLossPips = this.config.stopLossPips;
+    if (this.config.adaptiveRisk && this.dailyStats.consecutiveLosses > 0) {
+      stopLossPips = Math.max(10, stopLossPips - (this.dailyStats.consecutiveLosses * 2));
     }
-
+    
+    const slDistance = stopLossPips * pipValue;
     return type === 'BUY' ? entryPrice - slDistance : entryPrice + slDistance;
   }
 
   /**
-   * Calculate take profit based on risk:reward ratio
+   * Calculate take profit - use larger TP to recover after losses
    */
   calculateTakeProfit(entryPrice: number, stopLoss: number, type: 'BUY' | 'SELL'): number {
     const riskDistance = Math.abs(entryPrice - stopLoss);
-    const rewardDistance = riskDistance * (this.config.takeProfitPips / this.config.stopLossPips);
     
+    // After losses, aim for bigger rewards
+    let riskRewardRatio = this.config.takeProfitPips / this.config.stopLossPips;
+    if (this.config.adaptiveRisk && this.dailyStats.consecutiveLosses > 0) {
+      riskRewardRatio = Math.min(riskRewardRatio * 1.5, 3);
+    }
+    
+    const rewardDistance = riskDistance * riskRewardRatio;
     return type === 'BUY' ? entryPrice + rewardDistance : entryPrice - rewardDistance;
   }
 
   /**
-   * Record trade result for martingale tracking
+   * Record trade result and learn from it
    */
   recordTradeResult(profit: number): void {
-    this.lastTradeResult = profit > 0 ? 'win' : 'loss';
-    
-    if (profit > 0) {
-      this.martingaleStep = 0;
-    } else if (this.config.useMartingale) {
-      this.martingaleStep = Math.min(this.martingaleStep + 1, this.config.maxMartingaleSteps);
-    }
-
     // Update daily stats
     this.dailyStats.trades++;
     if (profit > 0) {
       this.dailyStats.wins++;
+      this.dailyStats.consecutiveWins++;
+      this.dailyStats.consecutiveLosses = 0;
+      this.dailyStats.lastTradeOutcome = 'win';
     } else {
       this.dailyStats.losses++;
+      this.dailyStats.consecutiveLosses++;
+      this.dailyStats.consecutiveWins = 0;
+      this.dailyStats.lastTradeOutcome = 'loss';
     }
     this.dailyStats.profit += profit;
     this.dailyStats.currentEquity += profit;
@@ -247,12 +300,23 @@ class RiskManager {
   }
 
   /**
+   * Check if we should move SL to breakeven
+   */
+  shouldMoveToBreakeven(currentProfit: number, symbol: string): boolean {
+    if (!this.config.useBreakevenAfterWin) return false;
+    
+    const pipDollarValue = this.getPipDollarValue(symbol, 10000);
+    const profitPips = currentProfit / pipDollarValue;
+    
+    return profitPips >= this.config.breakevenPipsLock;
+  }
+
+  /**
    * Update ATR for a symbol
    */
   updateATR(symbol: string, candles: CandleData[]): void {
     if (candles.length < 14) return;
     
-    // Calculate True Range
     let atr = 0;
     for (let i = 1; i < candles.length; i++) {
       const tr = Math.max(
@@ -316,25 +380,16 @@ class RiskManager {
   }
 
   private getMaxLotSize(symbol: string): number {
-    // Default max lot size
     return symbol === 'XAUUSD' ? 10 : 100;
   }
 
   private estimateATR(symbol: string, price?: number): number {
-    // Simple ATR estimation based on price
     const basePrice = price || 1.0;
     const volatility = symbol.includes('JPY') ? 0.5 : symbol === 'XAUUSD' ? 10 : 0.005;
     return basePrice * volatility * 0.1;
-  }
-
-  private isNewsTime(): boolean {
-    // Simplified news check - in production, use actual news API
-    // For now, return false (no news)
-    return false;
   }
 }
 
 // Export singleton instance
 export const riskManager = new RiskManager();
 export default riskManager;
-  }
