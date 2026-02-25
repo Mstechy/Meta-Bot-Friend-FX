@@ -337,3 +337,4 @@ class RiskManager {
 // Export singleton instance
 export const riskManager = new RiskManager();
 export default riskManager;
+  }
