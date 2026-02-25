@@ -8,7 +8,15 @@ import {
   playSignalSound,
 } from "@/lib/tradeSounds";
 import riskManager, { RiskConfig } from "@/lib/riskManagement";
-import { detectMultiStrategySignal, type StrategyConfig as IndicatorStrategyConfig } from "@/lib/indicators";
+import { 
+  detectMultiStrategySignal, 
+  type StrategyConfig as IndicatorStrategyConfig,
+  calculateRSI,
+  calculateMACD,
+  calculateStochastic,
+  calculateEMA,
+  calculateBollingerBands
+} from "@/lib/indicators";
 
 export interface AutoTradeLog {
   id: string;
@@ -54,6 +62,15 @@ interface AutoTraderConfig {
   strategyBreakout: boolean;
   strategyMomentum: boolean;
   minStrategyConfidence: number;
+  // Smart Cash Out - Close when price retraces from peak and won't reach again
+  smartCashOut: boolean;
+  smartCashOutMinProfit: number;    // Minimum profit $ to consider for smart cashout
+  smartCashOutRetracePercent: number; // % of peak profit retrace to trigger analysis
+  smartCashOutConfidence: number;   // Confidence threshold to close
+  // Smart Loss Recovery - Analyze losing trades before closing
+  smartLossRecovery: boolean;        // Enable/disable smart loss recovery
+  smartLossRecoveryConfidence: number; // Confidence threshold to keep trade open
+  smartLossMaxLossPercent: number;   // Max loss % from entry to attempt recovery
 }
 
 const DEFAULT_CONFIG: AutoTraderConfig = {
@@ -89,16 +106,158 @@ const DEFAULT_CONFIG: AutoTraderConfig = {
   strategyBreakout: true,
   strategyMomentum: true,
   minStrategyConfidence: 60,
+  // Smart Cash Out - Close when price retraces from peak and won't reach again
+  smartCashOut: true,
+  smartCashOutMinProfit: 5,       // Minimum $5 profit to consider
+  smartCashOutRetracePercent: 50, // When profit drops 50% from peak, analyze
+  smartCashOutConfidence: 70,     // Need 70% confidence to close early
+  // Smart Loss Recovery - Analyze losing trades before closing
+  smartLossRecovery: true,        // Enable smart loss recovery
+  smartLossRecoveryConfidence: 70, // Need 70% confidence to keep trade open
+  smartLossMaxLossPercent: 50,   // Max 50% of SL loss to attempt recovery
 };
 
 const STORAGE_KEY = "mt5_autotrader_config";
 const LOG_KEY = "mt5_autotrader_log";
+
+// Analysis result for smart cashout
+interface ContinuationAnalysis {
+  willContinue: boolean | null;  // true = price will continue to peak, false = reversal likely
+  confidence: number;             // 0-100 confidence level
+  reason: string;                // Human-readable explanation
+}
+
+/**
+ * Smart Market Analysis - Determines if price will continue to peak or reverse
+ * Uses multiple indicators to make a professional trading decision
+ */
+function analyzeMarketForContinuation(
+  candles: CandleData[],
+  positionType: "BUY" | "SELL",
+  peakPrice: number
+): ContinuationAnalysis {
+  const currentPrice = candles[candles.length - 1].close;
+  const signals: { indicator: string; direction: "bullish" | "bearish" | "neutral"; weight: number }[] = [];
+
+  // 1. RSI Analysis - Overbought = reversal likely, Oversold = continuation likely
+  const rsi = calculateRSI(candles);
+  if (positionType === "BUY") {
+    if (rsi > 70) signals.push({ indicator: "RSI", direction: "bearish", weight: 25 }); // Overbought - reversal
+    else if (rsi < 30) signals.push({ indicator: "RSI", direction: "bullish", weight: 20 }); // Oversold - continuation
+    else if (rsi > 50) signals.push({ indicator: "RSI", direction: "bullish", weight: 15 });
+  } else {
+    if (rsi < 30) signals.push({ indicator: "RSI", direction: "bullish", weight: 25 }); // Oversold - reversal
+    else if (rsi > 70) signals.push({ indicator: "RSI", direction: "bearish", weight: 20 }); // Overbought - continuation
+    else if (rsi < 50) signals.push({ indicator: "RSI", direction: "bearish", weight: 15 });
+  }
+
+  // 2. MACD Analysis - Histogram direction
+  const macd = calculateMACD(candles);
+  if (positionType === "BUY") {
+    if (macd.histogram > 0 && macd.macd > macd.signal) signals.push({ indicator: "MACD", direction: "bullish", weight: 25 });
+    else if (macd.histogram < 0) signals.push({ indicator: "MACD", direction: "bearish", weight: 25 });
+    else signals.push({ indicator: "MACD", direction: "neutral", weight: 10 });
+  } else {
+    if (macd.histogram < 0 && macd.macd < macd.signal) signals.push({ indicator: "MACD", direction: "bearish", weight: 25 });
+    else if (macd.histogram > 0) signals.push({ indicator: "MACD", direction: "bullish", weight: 25 });
+    else signals.push({ indicator: "MACD", direction: "neutral", weight: 10 });
+  }
+
+  // 3. Stochastic Analysis
+  const stoch = calculateStochastic(candles);
+  if (positionType === "BUY") {
+    if (stoch.k > 80) signals.push({ indicator: "Stoch", direction: "bearish", weight: 20 });
+    else if (stoch.k < 20) signals.push({ indicator: "Stoch", direction: "bullish", weight: 15 });
+    else if (stoch.k > stoch.d && stoch.k < 80) signals.push({ indicator: "Stoch", direction: "bullish", weight: 15 });
+  } else {
+    if (stoch.k < 20) signals.push({ indicator: "Stoch", direction: "bullish", weight: 20 });
+    else if (stoch.k > 80) signals.push({ indicator: "Stoch", direction: "bearish", weight: 15 });
+    else if (stoch.k < stoch.d && stoch.k > 20) signals.push({ indicator: "Stoch", direction: "bearish", weight: 15 });
+  }
+
+  // 4. Trend Analysis - EMA alignment
+  const ema20 = calculateEMA(candles, 20);
+  const ema50 = calculateEMA(candles, 50);
+  if (positionType === "BUY") {
+    if (currentPrice > ema20 && ema20 > ema50) signals.push({ indicator: "Trend", direction: "bullish", weight: 25 });
+    else if (currentPrice < ema20 && ema20 < ema50) signals.push({ indicator: "Trend", direction: "bearish", weight: 25 });
+    else signals.push({ indicator: "Trend", direction: "neutral", weight: 10 });
+  } else {
+    if (currentPrice < ema20 && ema20 < ema50) signals.push({ indicator: "Trend", direction: "bearish", weight: 25 });
+    else if (currentPrice > ema20 && ema20 > ema50) signals.push({ indicator: "Trend", direction: "bullish", weight: 25 });
+    else signals.push({ indicator: "Trend", direction: "neutral", weight: 10 });
+  }
+
+  // 5. Bollinger Band Analysis - Price position
+  const bollinger = calculateBollingerBands(candles);
+  if (positionType === "BUY") {
+    if (currentPrice >= bollinger.upper) signals.push({ indicator: "BB", direction: "bearish", weight: 20 }); // At resistance
+    else if (currentPrice <= bollinger.lower) signals.push({ indicator: "BB", direction: "bullish", weight: 15 }); // At support
+    else if (currentPrice > bollinger.middle) signals.push({ indicator: "BB", direction: "bullish", weight: 10 });
+  } else {
+    if (currentPrice <= bollinger.lower) signals.push({ indicator: "BB", direction: "bullish", weight: 20 }); // At support
+    else if (currentPrice >= bollinger.upper) signals.push({ indicator: "BB", direction: "bearish", weight: 15 }); // At resistance
+    else if (currentPrice < bollinger.middle) signals.push({ indicator: "BB", direction: "bearish", weight: 10 });
+  }
+
+  // Calculate weighted score
+  let bullishScore = 0;
+  let bearishScore = 0;
+  let totalWeight = 0;
+
+  for (const sig of signals) {
+    const weight = sig.weight;
+    totalWeight += weight;
+    if (sig.direction === "bullish") bullishScore += weight;
+    else if (sig.direction === "bearish") bearishScore += weight;
+  }
+
+  const bullishPercent = totalWeight > 0 ? (bullishScore / totalWeight) * 100 : 50;
+  const bearishPercent = totalWeight > 0 ? (bearishScore / totalWeight) * 100 : 50;
+
+  // Determine direction based on position type
+  let willContinue: boolean | null = null;
+  let confidence = 0;
+  let reason = "";
+
+  if (positionType === "BUY") {
+    if (bullishPercent > bearishPercent + 20) {
+      willContinue = true;
+      confidence = Math.round(bullishPercent);
+      reason = `Bullish continuation: ${bullishPercent.toFixed(0)}% bullish signals`;
+    } else if (bearishPercent > bullishPercent + 20) {
+      willContinue = false;
+      confidence = Math.round(bearishPercent);
+      reason = `Bearish reversal: ${bearishPercent.toFixed(0)}% bearish signals - won't reach ${peakPrice}`;
+    }
+  } else {
+    if (bearishPercent > bullishPercent + 20) {
+      willContinue = true;
+      confidence = Math.round(bearishPercent);
+      reason = `Bearish continuation: ${bearishPercent.toFixed(0)}% bearish signals`;
+    } else if (bullishPercent > bearishPercent + 20) {
+      willContinue = false;
+      confidence = Math.round(bullishPercent);
+      reason = `Bullish reversal: ${bullishPercent.toFixed(0)}% bullish signals - won't reach ${peakPrice}`;
+    }
+  }
+
+  if (willContinue === null) {
+    willContinue = true;
+    confidence = 50;
+    reason = "Mixed signals - defaulting to continuation";
+  }
+
+  return { willContinue, confidence, reason };
+}
 
 // Store position SL/TP tracking
 interface PositionTracker {
   stopLoss: number;
   takeProfit: number;
   initialStopLoss: number;
+  peakProfit: number;        // Track highest profit reached
+  peakPrice: number;         // Price at which peak profit was reached
 }
 
 const positionTrackers = new Map<string, PositionTracker>();
@@ -333,10 +492,12 @@ export function useAutoTrader(
         takeProfit: roundToSymbol(pair.symbol, takeProfit),
       };
 
-      positionTrackers.set(position.id, {
+positionTrackers.set(position.id, {
         stopLoss: position.stopLoss || 0,
         takeProfit: position.takeProfit || 0,
         initialStopLoss: position.stopLoss || 0,
+        peakProfit: 0,
+        peakPrice: position.openPrice,
       });
 
       onPlaceOrder(position);
@@ -378,11 +539,13 @@ export function useAutoTrader(
         const profit = calculateProfit(pos, currentPrice);
         
         let tracker = positionTrackers.get(pos.id);
-        if (!tracker && pos.stopLoss !== undefined && pos.takeProfit !== undefined) {
+if (!tracker && pos.stopLoss !== undefined && pos.takeProfit !== undefined) {
           tracker = {
             stopLoss: pos.stopLoss,
             takeProfit: pos.takeProfit,
             initialStopLoss: pos.stopLoss || 0,
+            peakProfit: 0,
+            peakPrice: pos.openPrice,
           };
           positionTrackers.set(pos.id, tracker);
         }
@@ -436,26 +599,69 @@ export function useAutoTrader(
         
         // Close if SL is hit - don't check profit (spread can cause issues)
         if (isSLHit) {
-          // LOSS - reset consecutive wins
-          consecutiveWins.current = 0;
+          // === SMART LOSS RECOVERY: Analyze before closing ===
+          // Only analyze if feature is enabled and loss is within recoverable range
+          const pipDollarValue = pos.symbol === "XAUUSD" ? 100 : pos.symbol.includes("JPY") ? 1000 : 10;
+          const slDistancePips = config.stopLossPips;
+          const potentialLoss = Math.abs(profit);
+          const maxLoss = slDistancePips * pipDollarValue * pos.volume;
+          const lossPercent = maxLoss > 0 ? (potentialLoss / maxLoss) * 100 : 100;
           
-          addLog({ 
-            action: "SL_HIT", 
-            symbol: pos.symbol, 
-            type: pos.type, 
-            price: currentPrice, 
-            profit: profit, 
-            reason: `🛑 Stop Loss hit! Loss: $${profit.toFixed(2)}` 
-          });
-          toast.error(`🛑 SL HIT: ${pos.type} ${pos.symbol} | $${profit.toFixed(2)}`, {
-            description: `Closed at ${currentPrice.toFixed(5)}`,
-          });
-          if (config.soundEnabled) playSLHitSound();
-          riskManager.recordTradeResult(profit);
-          positionTrackers.delete(pos.id);
-          trailingBest.delete(pos.id);
-          onClosePosition(pos.id);
-          continue;
+          let shouldClose = true;
+          
+          if (config.smartLossRecovery && lossPercent <= config.smartLossMaxLossPercent) {
+            // Analyze if trade can recover
+            const pair = pairs.find(p => p.symbol === pos.symbol);
+            if (pair) {
+              const candles = candleSeries.get(pos.symbol);
+              if (candles && candles.length > 30) {
+                // Analyze if market will turn in our favor
+                const analysis = analyzeMarketForContinuation(candles, pos.type, tracker.stopLoss);
+                
+                // If analysis shows continuation in our direction with high confidence, KEEP the trade open
+                if (analysis.willContinue === true && analysis.confidence >= config.smartLossRecoveryConfidence) {
+                  // Move SL to breakeven and let it ride - don't close!
+                  tracker.stopLoss = pos.openPrice;
+                  shouldClose = false;
+                  
+                  addLog({
+                    action: "SIGNAL",
+                    symbol: pos.symbol,
+                    type: pos.type,
+                    price: currentPrice,
+                    profit: profit,
+                    reason: `🔄 LOSS RECOVERY: Analysis shows ${analysis.confidence}% confidence for recovery. Moving SL to breakeven!`,
+                  });
+                  toast.info(`🔄 Loss Recovery: ${pos.symbol} | Keeping trade open - ${analysis.confidence}% confidence recovery`, {
+                    description: analysis.reason,
+                  });
+                }
+              }
+            }
+          }
+          
+          if (shouldClose) {
+            // LOSS - reset consecutive wins
+            consecutiveWins.current = 0;
+            
+            addLog({ 
+              action: "SL_HIT", 
+              symbol: pos.symbol, 
+              type: pos.type, 
+              price: currentPrice, 
+              profit: profit, 
+              reason: `🛑 Stop Loss hit! Loss: $${profit.toFixed(2)}` 
+            });
+            toast.error(`🛑 SL HIT: ${pos.type} ${pos.symbol} | $${profit.toFixed(2)}`, {
+              description: `Closed at ${currentPrice.toFixed(5)}`,
+            });
+            if (config.soundEnabled) playSLHitSound();
+            riskManager.recordTradeResult(profit);
+            positionTrackers.delete(pos.id);
+            trailingBest.delete(pos.id);
+            onClosePosition(pos.id);
+            continue;
+          }
         }
 
         // === SMART EXIT: close winners when signal flips strongly ===
@@ -528,6 +734,56 @@ export function useAutoTrader(
                   profit: profit,
                   reason: `📈 Trailing SL → ${tracker.stopLoss.toFixed(5)}`,
                 });
+              }
+            }
+          }
+        }
+
+        // === SMART CASH OUT: Close when price retraces from peak and won't reach again ===
+        if (config.smartCashOut && profit > config.smartCashOutMinProfit) {
+          // Update peak profit tracking
+          if (profit > tracker.peakProfit) {
+            tracker.peakProfit = profit;
+            tracker.peakPrice = currentPrice;
+          }
+          
+          // Check if price has retraced from peak by the configured percentage
+          const retracePercent = ((tracker.peakProfit - profit) / tracker.peakProfit) * 100;
+          
+          if (retracePercent >= config.smartCashOutRetracePercent) {
+            // Price has retraced - analyze if it can reach peak again
+            const pair = pairs.find(p => p.symbol === pos.symbol);
+            if (pair) {
+              const candles = candleSeries.get(pos.symbol);
+              if (candles && candles.length > 30) {
+                // Use multiple indicators to predict continuation vs reversal
+                const analysis = analyzeMarketForContinuation(candles, pos.type, tracker.peakPrice);
+                
+                // If analysis shows reversal is likely and confidence is high enough
+                if (analysis.willContinue === false && analysis.confidence >= config.smartCashOutConfidence) {
+                  // Close the trade - we won't reach the peak again
+                  const lostProfit = tracker.peakProfit - profit;
+                  addLog({
+                    action: "CLOSE",
+                    symbol: pos.symbol,
+                    type: pos.type,
+                    price: currentPrice,
+                    profit: profit,
+                    reason: `💰 SMART CASHOUT! Peak was $${tracker.peakProfit.toFixed(2)}, analysis shows reversal. Closed at $${profit.toFixed(2)} (saved $${lostProfit.toFixed(2)} from peak)`,
+                  });
+                  toast.success(`💰 Smart Cashout: ${pos.symbol} | Secured $${profit.toFixed(2)}`, {
+                    description: analysis.reason,
+                  });
+                  if (config.soundEnabled) playTPHitSound();
+                  riskManager.recordTradeResult(profit);
+                  positionTrackers.delete(pos.id);
+                  trailingBest.delete(pos.id);
+                  onClosePosition(pos.id);
+                  if (config.quickReentry) {
+                    tryOpenTrade(true);
+                  }
+                  continue;
+                }
               }
             }
           }
